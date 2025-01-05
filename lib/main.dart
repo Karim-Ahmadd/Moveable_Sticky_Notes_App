@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+//import 'package:project2/stickynote.dart';
 import 'moveablestickynote.dart';
+import "apiCall.dart" as api;
 
 void main() {
   runApp(const MyApp());
@@ -31,58 +33,101 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  Color noteColor = Colors.green;
+  bool _load = false;
+  static const Map<String, Color> colorMap = <String, Color>{
+    'green': Colors.green,
+    'yellow': Colors.yellow,
+    'red': Colors.red
+  };
+
   List<Widget> stickyNotes = [];
+
+  String noteColor = 'green';
   final TextEditingController taskTextController = TextEditingController();
-  @override
-  void initState() {
-    super.initState();
-    stickyNotes = [
-      MoveableStickyNote(
+
+  void update(bool success) {
+    setState(() {
+      _load = true;
+      if (!success) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Connection Error')));
+      }
+    });
+  }
+
+  void deleteStickyNote(int id) async {
+    await api.deleteStickyNote(update, id);
+    setState(() {
+      updateStickyNotes();
+    });
+  }
+
+  void updateStickyNotePos(int id, double x, double y) async {
+    await api.updateStickyNotesPos(update, id, x, y);
+  }
+
+  void updateStickyNotes() async {
+    stickyNotes.clear();
+    final jsonResponse = await api.getStickyNotes(update);
+
+    for (var row in jsonResponse) {
+      MoveableStickyNote m = MoveableStickyNote(
           key: UniqueKey(),
-          color: noteColor,
-          fRemoveNote: removeStickyNote,
-          child: const Text("Type your Task below, Add it, then Move it"))
-    ];
-  }
+          id: int.parse(row['ID']),
+          color: colorMap[row['color']] as Color,
+          xRatio: double.parse(row['xPositionRatio']),
+          yRatio: double.parse(row["yPositionRatio"]),
+          fRemoveNote: deleteStickyNote,
+          updateStickyNotePos: updateStickyNotePos,
+          child: Text(row['text']));
 
-  void updateColor(Color c) {
-    noteColor = c;
-  }
-
-  void addStickyNote() {
-    if (taskTextController.text.isNotEmpty) {
-      setState(() {
-        stickyNotes.add(MoveableStickyNote(
-            key: UniqueKey(),
-            color: noteColor,
-            fRemoveNote: removeStickyNote,
-            child: Text(taskTextController.text)));
-        taskTextController.clear();
-      });
+      stickyNotes.add(m);
     }
   }
 
-  void removeStickyNote(int targetId) {
-    setState(() {
-      stickyNotes
-          .removeWhere((item) => (item as MoveableStickyNote).id == targetId);
-    });
+  @override
+  void initState() {
+    super.initState();
+    updateStickyNotes();
+  }
+
+  void updateColor(String c) {
+    noteColor = c;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        actions: [
+          IconButton(
+              onPressed: !_load
+                  ? null
+                  : () {
+                      setState(() {
+                        _load = false; //show progress bar
+                        updateStickyNotes();
+                      });
+                    },
+              icon: const Icon(Icons.refresh))
+        ],
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Center(child: Text(widget.title)),
       ),
-      body: Center(child: Stack(children: stickyNotes)),
+      body: !_load
+          ? const Center(
+              child: SizedBox(
+                  width: 100, height: 100, child: CircularProgressIndicator()))
+          : Center(child: Stack(children: stickyNotes)),
       bottomNavigationBar: BottomPostForm(
           taskTextController: taskTextController, fUpdateColor: updateColor),
       floatingActionButton: FloatingActionButton(
           onPressed: () {
-            addStickyNote();
+            setState(() async {
+              await api.insertStickyNote(
+                  update, taskTextController.text, noteColor);
+              updateStickyNotes();
+            });
           },
           child: const Icon(Icons.add)),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -95,12 +140,12 @@ class BottomPostForm extends StatelessWidget {
       {super.key,
       required this.taskTextController,
       required this.fUpdateColor});
-  final Function(Color) fUpdateColor;
+  final Function(String) fUpdateColor;
   final TextEditingController taskTextController;
-  static const Map<String, Color> priorityMap = <String, Color>{
-    'Low': Colors.green,
-    'Medium': Colors.yellow,
-    'High': Colors.red
+  static const Map<String, String> priorityMap = <String, String>{
+    'Low': "green",
+    'Medium': "yellow",
+    'High': "red"
   };
 
   @override
@@ -123,11 +168,11 @@ class BottomPostForm extends StatelessWidget {
             const SizedBox(width: 10),
             DropdownMenu(
                 onSelected: (value) {
-                  fUpdateColor(value as Color);
+                  fUpdateColor(value as String);
                 },
-                initialSelection: Colors.green,
+                initialSelection: "green",
                 dropdownMenuEntries: priorityMap.entries
-                    .map<DropdownMenuEntry<Color>>(
+                    .map<DropdownMenuEntry<String>>(
                         (e) => DropdownMenuEntry(value: e.value, label: e.key))
                     .toList())
           ],
